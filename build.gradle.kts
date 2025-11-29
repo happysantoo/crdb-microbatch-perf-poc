@@ -29,12 +29,16 @@ dependencies {
     implementation("org.postgresql:postgresql")
     
     // VajraPulse
-    implementation("com.vajrapulse:vajrapulse-core:0.9.4")
-    implementation("com.vajrapulse:vajrapulse-api:0.9.4")
-    implementation("com.vajrapulse:vajrapulse-worker:0.9.4") {
+    implementation("com.vajrapulse:vajrapulse-core:0.9.5")
+    implementation("com.vajrapulse:vajrapulse-api:0.9.5")
+    implementation("com.vajrapulse:vajrapulse-worker:0.9.5") {
         exclude(group = "org.slf4j", module = "slf4j-simple")
     }
-    implementation("com.vajrapulse:vajrapulse-exporter-opentelemetry:0.9.4")
+    implementation("com.vajrapulse:vajrapulse-exporter-opentelemetry:0.9.5")
+    implementation("com.vajrapulse:vajrapulse-exporter-report:0.9.5")
+    
+    // Vortex Micro-Batching Library
+    implementation("com.vajrapulse:vortex:0.0.2")
     
     // Micrometer for Prometheus
     implementation("io.micrometer:micrometer-registry-prometheus")
