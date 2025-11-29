@@ -113,118 +113,6 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "short"
-        }
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 0
-      },
-      "id": 12,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "crdb_batch_rows_success_total",
-          "refId": "A"
-        }
-      ],
-      "title": "Total Rows Inserted (Cumulative)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "ops"
-        }
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 0
-      },
-      "id": 13,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(crdb_batch_rows_success_total[1m])",
-          "refId": "A"
-        }
-      ],
-      "title": "Rows Inserted/sec (Throughput)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
             "mode": "palette-classic"
           },
           "custom": {
@@ -265,8 +153,8 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 0,
-        "y": 4
+        "x": 12,
+        "y": 0
       },
       "id": 2,
       "options": {
@@ -388,8 +276,8 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 4
+        "x": 0,
+        "y": 8
       },
       "id": 3,
       "options": {
@@ -428,17 +316,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(crdb_batch_rows_total_total[1m])",
-          "refId": "C",
-          "legendFormat": "Total Rows/sec"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
           "expr": "rate(vortex_batches_dispatched_total[1m])",
-          "refId": "D",
+          "refId": "C",
           "legendFormat": "Vortex Batches/sec"
         }
       ],
@@ -493,8 +372,8 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 0,
-        "y": 12
+        "x": 12,
+        "y": 8
       },
       "id": 4,
       "options": {
@@ -533,17 +412,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.99, rate(crdb_batch_duration_seconds_bucket[1m]))",
-          "refId": "C",
-          "legendFormat": "Batch Duration p99"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
           "expr": "histogram_quantile(0.50, rate(vortex_batch_dispatch_latency_seconds_bucket[1m]))",
-          "refId": "D",
+          "refId": "C",
           "legendFormat": "Vortex Dispatch p50"
         },
         {
@@ -552,7 +422,7 @@
             "uid": "prometheus"
           },
           "expr": "histogram_quantile(0.95, rate(vortex_batch_dispatch_latency_seconds_bucket[1m]))",
-          "refId": "E",
+          "refId": "D",
           "legendFormat": "Vortex Dispatch p95"
         }
       ],
@@ -607,8 +477,8 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 12
+        "x": 0,
+        "y": 16
       },
       "id": 5,
       "options": {
@@ -643,7 +513,7 @@
           "legendFormat": "Target Load"
         }
       ],
-      "title": "VajraPulse Load (Current vs Target)",
+      "title": "VajraPulse Adaptive Load",
       "type": "timeseries"
     },
     {
@@ -694,8 +564,8 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 0,
-        "y": 20
+        "x": 12,
+        "y": 16
       },
       "id": 6,
       "options": {
@@ -784,111 +654,6 @@
               }
             ]
           },
-          "unit": "ops"
-        }
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 20
-      },
-      "id": 14,
-      "options": {
-        "legend": {
-          "calcs": ["mean", "last"],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(crdb_submits_success_total[1m])",
-          "refId": "A",
-          "legendFormat": "Successful Submits/sec"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(crdb_submits_failure_total[1m])",
-          "refId": "B",
-          "legendFormat": "Failed Submits/sec"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(crdb_batches_success_total[1m])",
-          "refId": "C",
-          "legendFormat": "Successful Batches/sec"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(crdb_batches_failure_total[1m])",
-          "refId": "D",
-          "legendFormat": "Failed Batches/sec"
-        }
-      ],
-      "title": "Success/Failure Rates",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "lineInterpolation": "linear",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
           "unit": "bytes"
         }
       },
@@ -896,7 +661,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 28
+        "y": 24
       },
       "id": 7,
       "options": {
@@ -992,7 +757,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 28
+        "y": 24
       },
       "id": 8,
       "options": {
@@ -1079,7 +844,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 36
+        "y": 32
       },
       "id": 9,
       "options": {
@@ -1137,14 +902,14 @@
               }
             ]
           },
-          "unit": "percent"
+          "unit": "short"
         }
       },
       "gridPos": {
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 36
+        "y": 32
       },
       "id": 10,
       "options": {
@@ -1200,7 +965,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 36
+        "y": 32
       },
       "id": 11,
       "options": {
@@ -1244,7 +1009,8 @@
   "timepicker": {},
   "timezone": "",
   "title": "CRDB Microbatch Performance Dashboard",
-  "uid": "crdb-microbatch-complete",
+  "uid": "crdb-microbatch-new",
   "version": 1,
   "weekStart": ""
 }
+

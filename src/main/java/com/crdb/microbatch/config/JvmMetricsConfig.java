@@ -8,9 +8,6 @@ import org.springframework.boot.actuate.autoconfigure.metrics.MeterRegistryCusto
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import javax.management.MBeanServer;
-import java.lang.management.ManagementFactory;
-
 /**
  * Configuration for JVM metrics collection including GC metrics.
  * 
