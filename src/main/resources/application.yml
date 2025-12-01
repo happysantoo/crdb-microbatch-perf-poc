@@ -54,11 +54,18 @@ logging:
   level:
     root: INFO
     com.crdb.microbatch: INFO
-    com.crdb.microbatch.service: DEBUG
+    com.crdb.microbatch.service: INFO
+    com.crdb.microbatch.service.BatchingDiagnostics: ERROR  # Disabled - too noisy
     com.crdb.microbatch.backend: INFO
     com.crdb.microbatch.repository: INFO
-    com.crdb.microbatch.task: DEBUG
+    com.crdb.microbatch.task: INFO
+    com.crdb.microbatch.backpressure: INFO
     com.vajrapulse: INFO
+    com.vajrapulse.core.engine: INFO
+    com.vajrapulse.core.engine.ExecutionEngine: INFO
+    com.vajrapulse.core.engine.RateController: INFO
+    com.vajrapulse.api: INFO
+    com.vajrapulse.worker: INFO
     org.springframework: WARN
     org.springframework.jdbc: WARN
     org.hikaricp: INFO

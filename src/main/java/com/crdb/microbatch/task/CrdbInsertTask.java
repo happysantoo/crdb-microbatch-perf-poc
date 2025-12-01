@@ -110,49 +110,54 @@ public class CrdbInsertTask implements TaskLifecycle {
         
         // Pass MeterRegistry to enable Vortex metrics
         batcher = new MicroBatcher<>(backend, config, meterRegistry);
+        
+        org.slf4j.LoggerFactory.getLogger(CrdbInsertTask.class)
+            .info("MicroBatcher initialized: batchSize={}, lingerTime={}ms", 
+                BATCH_SIZE, LINGER_TIME.toMillis());
     }
 
     @Override
     public TaskResult execute(long iteration) throws Exception {
         submitCounter.increment();
         Timer.Sample sample = Timer.start(meterRegistry);
+        long submitStartTime = System.currentTimeMillis();
         
         try {
             TestInsert testInsert = generateTestData();
             
-            // Use submitWithCallback for item-by-item results - much simpler!
-            // The callback directly receives the item and its result - no manual extraction needed!
-            CompletableFuture<TaskResult> resultFuture = new CompletableFuture<>();
+            // NON-BLOCKING APPROACH: Submit item and return success immediately
+            // This allows items to accumulate in the MicroBatcher queue for batching.
+            // The callback will handle the actual result and update metrics.
+            // VajraPulse will track success/failure through metrics, not per-task results.
             
             batcher.submitWithCallback(testInsert, (item, itemResult) -> {
+                // Callback executes asynchronously when batch completes
                 sample.stop(submitLatencyTimer);
                 
-                // Update metrics directly from ItemResult (simpler than checking TaskResult)
+                // Update metrics based on actual result
                 if (itemResult instanceof ItemResult.Success<TestInsert>) {
                     submitSuccessCounter.increment();
                 } else {
                     submitFailureCounter.increment();
+                    ItemResult.Failure<TestInsert> failure = (ItemResult.Failure<TestInsert>) itemResult;
+                    org.slf4j.LoggerFactory.getLogger(CrdbInsertTask.class)
+                        .warn("Item failed in batch: {}", failure.error().getMessage());
                 }
-                
-                // Convert and complete
-                resultFuture.complete(convertItemResult(itemResult));
             });
             
-            // Wait for callback to complete (required for synchronous TaskResult return)
-            TaskResult taskResult = resultFuture.get();
+            // Reduced logging - only log errors, not every execution
             
-            // Log every 1000th execution for debugging
-            if (iteration % 1000 == 0) {
-                org.slf4j.LoggerFactory.getLogger(CrdbInsertTask.class)
-                    .debug("Executed iteration: {}", iteration);
-            }
+            // Return success immediately - allows items to accumulate for batching
+            // Actual success/failure is tracked via metrics in the callback
+            return TaskResult.success();
             
-            return taskResult;
         } catch (Exception e) {
+            // Only catch exceptions during submission (not batch processing)
             submitFailureCounter.increment();
             sample.stop(submitLatencyTimer);
+            long totalDuration = System.currentTimeMillis() - submitStartTime;
             org.slf4j.LoggerFactory.getLogger(CrdbInsertTask.class)
-                .error("Task execution failed at iteration: {}", iteration, e);
+                .error("Task submission failed at iteration: {}, duration: {}ms", iteration, totalDuration, e);
             return TaskResult.failure(e);
         }
     }

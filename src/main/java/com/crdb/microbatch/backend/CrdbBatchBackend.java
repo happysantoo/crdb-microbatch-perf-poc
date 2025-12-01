@@ -86,19 +86,40 @@ public class CrdbBatchBackend implements Backend<TestInsert> {
     @Override
     public BatchResult<TestInsert> dispatch(List<TestInsert> batch) throws Exception {
         if (batch.isEmpty()) {
+            log.debug("Batch is empty, returning empty result");
             return new BatchResult<>(List.of(), List.of());
         }
         
         batchCounter.increment();
         rowCounter.increment(batch.size());
         
+        long batchStartTime = System.currentTimeMillis();
+        
+        // Log batching issues at DEBUG level to reduce noise (only RAMP_UP/RAMP_DOWN should be visible)
+        if (batch.size() == 1) {
+            log.debug("⚠️ BATCHING ISSUE: Batch contains only 1 item! Items are not being accumulated.");
+        } else if (batch.size() < 10) {
+            log.debug("⚠️ Small batch: {} items (expected ~50). Batching may not be working efficiently.", batch.size());
+        }
+        
         return batchTimer.recordCallable(() -> {
             try {
+                long beforeInsert = System.currentTimeMillis();
                 int[] updateCounts = repository.insertBatch(batch);
+                long afterInsert = System.currentTimeMillis();
+                long insertDuration = afterInsert - beforeInsert;
+                
                 validateUpdateCounts(updateCounts, batch.size());
-                return mapToBatchResult(batch, updateCounts);
+                BatchResult<TestInsert> result = mapToBatchResult(batch, updateCounts);
+                
+                // Removed batch dispatch duration warning - too noisy
+                // Metrics are tracked via Micrometer timers for monitoring
+                
+                return result;
             } catch (Exception e) {
-                log.error("Batch insert failed for {} items: {}", batch.size(), e.getMessage(), e);
+                long totalDuration = System.currentTimeMillis() - batchStartTime;
+                log.error("Batch insert failed for {} items after {}ms: {}", 
+                    batch.size(), totalDuration, e.getMessage(), e);
                 return createFailureResult(batch, e);
             }
         });
