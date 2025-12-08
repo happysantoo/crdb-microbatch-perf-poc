@@ -2,7 +2,6 @@ package com.crdb.microbatch;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Main Spring Boot application for CRDB microbatch performance testing.
@@ -11,7 +10,6 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * with single-row inserts to measure microbatching effectiveness.
  */
 @SpringBootApplication
-@EnableScheduling
 public class CrdbMicrobatchPerfPocApplication {
 
     /**

@@ -29,7 +29,7 @@ dependencies {
     implementation("org.postgresql:postgresql")
     
     // VajraPulse BOM - manages all VajraPulse module versions
-    implementation(platform("com.vajrapulse:vajrapulse-bom:0.9.6"))
+    implementation(platform("com.vajrapulse:vajrapulse-bom:0.9.8"))
     
     // VajraPulse modules (versions managed by BOM)
     implementation("com.vajrapulse:vajrapulse-core")
@@ -41,7 +41,7 @@ dependencies {
     implementation("com.vajrapulse:vajrapulse-exporter-report")
     
     // Vortex Micro-Batching Library
-    implementation("com.vajrapulse:vortex:0.0.3")
+    implementation("com.vajrapulse:vortex:0.0.7")
     
     // Micrometer for Prometheus
     implementation("io.micrometer:micrometer-registry-prometheus")

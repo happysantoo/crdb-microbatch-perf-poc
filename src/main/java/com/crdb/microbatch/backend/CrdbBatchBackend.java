@@ -95,11 +95,23 @@ public class CrdbBatchBackend implements Backend<TestInsert> {
         
         long batchStartTime = System.currentTimeMillis();
         
-        // Log batching issues at DEBUG level to reduce noise (only RAMP_UP/RAMP_DOWN should be visible)
-        if (batch.size() == 1) {
-            log.debug("⚠️ BATCHING ISSUE: Batch contains only 1 item! Items are not being accumulated.");
-        } else if (batch.size() < 10) {
-            log.debug("⚠️ Small batch: {} items (expected ~50). Batching may not be working efficiently.", batch.size());
+        // Log batch size issues - CRITICAL for debugging
+        int actualBatchSize = batch.size();
+        
+        // Log first few batches to understand pattern
+        if (batchCounter.count() <= 10) {
+            log.info("Batch #{}: {} items (expected ~50)", batchCounter.count(), actualBatchSize);
+        }
+        
+        if (actualBatchSize == 1) {
+            // Only log every 100th occurrence to reduce noise
+            if (batchCounter.count() % 100 == 0) {
+                log.warn("⚠️ BATCHING ISSUE: Batch #{} contains only 1 item! Items are not being accumulated. This suggests Vortex is dispatching immediately instead of batching.", batchCounter.count());
+            }
+        } else if (actualBatchSize < 10) {
+            log.warn("⚠️ Small batch #{}: {} items (expected ~50). Batching may not be working efficiently.", batchCounter.count(), actualBatchSize);
+        } else if (actualBatchSize > 100) {
+            log.error("❌ CRITICAL: Batch #{} size is {} (expected ~50)! BatcherConfig.batchSize(50) may not be working!", batchCounter.count(), actualBatchSize);
         }
         
         return batchTimer.recordCallable(() -> {
