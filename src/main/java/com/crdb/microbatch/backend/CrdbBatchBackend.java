@@ -116,11 +116,8 @@ public class CrdbBatchBackend implements Backend<TestInsert> {
         
         return batchTimer.recordCallable(() -> {
             try {
-                long beforeInsert = System.currentTimeMillis();
-                int[] updateCounts = repository.insertBatch(batch);
-                long afterInsert = System.currentTimeMillis();
-                long insertDuration = afterInsert - beforeInsert;
                 
+                int[] updateCounts = repository.insertBatch(batch);
                 validateUpdateCounts(updateCounts, batch.size());
                 BatchResult<TestInsert> result = mapToBatchResult(batch, updateCounts);
                 

@@ -97,37 +97,37 @@ canvas {
   <div class="container">
     <h1>Final Results</h1>
     <div class="metadata">
-      <p><strong>Generated:</strong> 2025-12-07T00:49:43.645366Z</p>
+      <p><strong>Generated:</strong> 2025-12-08T02:23:35.015621Z</p>
       <p><strong>Elapsed Time:</strong> 30m 0s</p>
     </div>
     <div class="summary-grid">
       <div class="card">
         <h3>Total Executions</h3>
-        <p class="value">18000000</p>
+        <p class="value">13500021</p>
       </div>
       <div class="card">
         <h3>Success Rate</h3>
-        <p class="value">99.97%</p>
+        <p class="value">99.91%</p>
       </div>
       <div class="card">
         <h3>Response TPS</h3>
-        <p class="value">9999.56</p>
+        <p class="value">7499.33</p>
       </div>
       <div class="card">
         <h3>Failure Rate</h3>
-        <p class="value">0.03%</p>
+        <p class="value">0.09%</p>
       </div>
     </div>
     <div class="section">
       <h2>Detailed Metrics</h2>
       <table>
         <tr><th>Metric</th><th>Value</th></tr>
-        <tr><td>Total Executions</td><td>18000000</td></tr>
-        <tr><td>Successful</td><td>17995020 (99.97%)</td></tr>
-        <tr><td>Failed</td><td>4980 (0.03%)</td></tr>
-        <tr><td>Response TPS</td><td>9999.56</td></tr>
-        <tr><td>Success TPS</td><td>9996.79</td></tr>
-        <tr><td>Failure TPS</td><td>2.77</td></tr>
+        <tr><td>Total Executions</td><td>13500021</td></tr>
+        <tr><td>Successful</td><td>13487506 (99.91%)</td></tr>
+        <tr><td>Failed</td><td>12515 (0.09%)</td></tr>
+        <tr><td>Response TPS</td><td>7499.33</td></tr>
+        <tr><td>Success TPS</td><td>7492.38</td></tr>
+        <tr><td>Failure TPS</td><td>6.95</td></tr>
         <tr><td>Queue Size</td><td>0</td></tr>
       </table>
     </div>
@@ -151,7 +151,7 @@ new Chart(document.getElementById('successChart'), {
     labels: ["P50", "P90", "P95", "P99"],
     datasets: [{
       label: 'Latency (ms)',
-      data: [0.012668, 0.194556, 0.413692, 1.253372],
+      data: [0.110076, 0.97894, 1.720316, 6.062076],
       backgroundColor: 'rgba(75, 192, 192, 0.6)',
       borderColor: 'rgba(75, 192, 192, 1)',
       borderWidth: 1
@@ -168,7 +168,7 @@ new Chart(document.getElementById('failureChart'), {
     labels: ["P50", "P90", "P95", "P99"],
     datasets: [{
       label: 'Latency (ms)',
-      data: [0.012668, 0.194556, 0.413692, 1.253372],
+      data: [0.110076, 0.97894, 1.720316, 6.062076],
       backgroundColor: 'rgba(255, 99, 132, 0.6)',
       borderColor: 'rgba(255, 99, 132, 1)',
       borderWidth: 1
@@ -185,7 +185,7 @@ new Chart(document.getElementById('queueChart'), {
     labels: ["P50", "P90", "P95", "P99"],
     datasets: [{
       label: 'Wait Time (ms)',
-      data: [0.012668, 0.194556, 0.413692, 1.253372],
+      data: [0.110076, 0.97894, 1.720316, 6.062076],
       backgroundColor: 'rgba(153, 102, 255, 0.6)',
       borderColor: 'rgba(153, 102, 255, 1)',
       borderWidth: 1

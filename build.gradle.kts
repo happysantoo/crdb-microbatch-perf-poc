@@ -11,6 +11,7 @@ java {
 }
 
 repositories {
+    mavenLocal()
     mavenCentral()
     // VajraPulse might have snapshots or additional repos
     maven {
@@ -29,7 +30,7 @@ dependencies {
     implementation("org.postgresql:postgresql")
     
     // VajraPulse BOM - manages all VajraPulse module versions
-    implementation(platform("com.vajrapulse:vajrapulse-bom:0.9.8"))
+    implementation(platform("com.vajrapulse:vajrapulse-bom:0.9.9"))
     
     // VajraPulse modules (versions managed by BOM)
     implementation("com.vajrapulse:vajrapulse-core")

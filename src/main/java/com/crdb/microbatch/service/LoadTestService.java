@@ -1,13 +1,17 @@
 package com.crdb.microbatch.service;
 
+import com.crdb.microbatch.backpressure.CompositeBackpressureProvider;
+import com.crdb.microbatch.backpressure.ConnectionPoolBackpressureProvider;
 import com.crdb.microbatch.repository.TestInsertRepository;
 import com.crdb.microbatch.task.CrdbInsertTask;
-import com.vajrapulse.api.StaticLoad;
-import com.vajrapulse.api.TaskIdentity;
+import com.vajrapulse.api.pattern.adaptive.AdaptiveLoadPattern;
+import com.vajrapulse.api.task.TaskIdentity;
 import com.vajrapulse.exporter.otel.OpenTelemetryExporter;
 import com.vajrapulse.exporter.otel.OpenTelemetryExporter.Protocol;
 import com.vajrapulse.exporter.report.HtmlReportExporter;
+import com.vajrapulse.vortex.backpressure.QueueDepthBackpressureProvider;
 import com.vajrapulse.worker.pipeline.MetricsPipeline;
+import com.zaxxer.hikari.HikariDataSource;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,14 +22,17 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * Service that orchestrates the load test execution using VajraPulse MetricsPipeline.
  * 
- * <p>This is a simplified, straightforward implementation that:
+ * <p>This implementation uses AdaptiveLoadPattern (VajraPulse 0.9.9) with:
  * <ul>
- *   <li>Uses StaticLoad pattern for consistent load</li>
- *   <li>Provides comprehensive metrics and reporting</li>
+ *   <li>Adaptive TPS adjustment based on backpressure and failure rate</li>
+ *   <li>Composite backpressure (queue depth + connection pool)</li>
+ *   <li>Automatic recovery from low TPS</li>
+ *   <li>Comprehensive metrics and reporting</li>
  * </ul>
  */
 @Service
@@ -33,8 +40,15 @@ public class LoadTestService implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(LoadTestService.class);
     
-    // Static load pattern configuration
-    private static final double TARGET_TPS = 10000.0;
+    // Adaptive load pattern configuration
+    private static final double MIN_TPS = 1000.0;
+    private static final double MAX_TPS = 20000.0;
+    private static final double INITIAL_TPS = 1000.0;
+    private static final double RAMP_INCREMENT = 500.0;
+    private static final double RAMP_DECREMENT = 1000.0;
+    private static final Duration RAMP_INTERVAL = Duration.ofSeconds(5);
+    private static final Duration SUSTAIN_DURATION = Duration.ofSeconds(10);
+    private static final double ERROR_THRESHOLD = 0.01;  // 1% failure rate
     private static final Duration TEST_DURATION = Duration.ofMinutes(30);
     
     private static final int EXPORT_INTERVAL_SECONDS = 10;
@@ -45,6 +59,7 @@ public class LoadTestService implements CommandLineRunner {
     private final CrdbInsertTask task;
     private final TestInsertRepository repository;
     private final MeterRegistry meterRegistry;
+    private final HikariDataSource dataSource;
     
     private Object testResult;
     private volatile boolean testCompleted = false;
@@ -55,14 +70,17 @@ public class LoadTestService implements CommandLineRunner {
      * @param task the CRDB insert task
      * @param repository the test insert repository
      * @param meterRegistry the Micrometer registry for metrics
+     * @param dataSource the HikariCP data source (for connection pool backpressure)
      */
     public LoadTestService(
             CrdbInsertTask task, 
             TestInsertRepository repository, 
-            MeterRegistry meterRegistry) {
+            MeterRegistry meterRegistry,
+            HikariDataSource dataSource) {
         this.task = task;
         this.repository = repository;
         this.meterRegistry = meterRegistry;
+        this.dataSource = dataSource;
         registerShutdownHook();
     }
 
@@ -80,10 +98,17 @@ public class LoadTestService implements CommandLineRunner {
 
     @Override
     public void run(String... args) throws Exception {
-        log.info("=== Starting CRDB Microbatch Static Load Test ===");
+        log.info("=== Starting CRDB Microbatch Adaptive Load Test ===");
         log.info("Configuration:");
-        log.info("  Target TPS: {}", TARGET_TPS);
-        log.info("  Duration: {} minutes", TEST_DURATION.toMinutes());
+        log.info("  Min TPS: {}", MIN_TPS);
+        log.info("  Max TPS: {}", MAX_TPS);
+        log.info("  Initial TPS: {}", INITIAL_TPS);
+        log.info("  Ramp Increment: {}", RAMP_INCREMENT);
+        log.info("  Ramp Decrement: {}", RAMP_DECREMENT);
+        log.info("  Ramp Interval: {} seconds", RAMP_INTERVAL.getSeconds());
+        log.info("  Sustain Duration: {} seconds", SUSTAIN_DURATION.getSeconds());
+        log.info("  Error Threshold: {}%", ERROR_THRESHOLD * 100.0);
+        log.info("  Test Duration: {} minutes", TEST_DURATION.toMinutes());
         
         initializeDatabase();
         task.init();
@@ -178,12 +203,13 @@ public class LoadTestService implements CommandLineRunner {
     }
 
     /**
-     * Executes the load test using MetricsPipeline with StaticLoad pattern.
+     * Executes the load test using MetricsPipeline with AdaptiveLoadPattern.
      * 
      * <p>This method:
      * <ul>
-     *   <li>Creates StaticLoad pattern for consistent load</li>
-     *   <li>Runs at fixed TPS for specified duration</li>
+     *   <li>Creates AdaptiveLoadPattern with backpressure-aware TPS adjustment</li>
+     *   <li>Uses composite backpressure (queue + connection pool) for capacity detection</li>
+     *   <li>Automatically adjusts TPS based on failure rate and backpressure</li>
      *   <li>Provides comprehensive metrics and reporting</li>
      * </ul>
      * 
@@ -194,18 +220,42 @@ public class LoadTestService implements CommandLineRunner {
     private void executeLoadTest(OpenTelemetryExporter otelExporter, HtmlReportExporter htmlExporter) 
             throws Exception {
         try (MetricsPipeline pipeline = createMetricsPipeline(otelExporter, htmlExporter)) {
-            // Create StaticLoad pattern
-            StaticLoad staticLoad = new StaticLoad(TARGET_TPS, TEST_DURATION);
+            // Create composite backpressure provider
+            CompositeBackpressureProvider backpressureProvider = createBackpressureProvider();
             
-            log.info("=== Starting Static Load Test ===");
-            log.info("Load Pattern: StaticLoad");
-            log.info("Target TPS: {}", TARGET_TPS);
+            // Create metrics provider that combines Micrometer metrics with backpressure
+            BackpressureMetricsProvider metricsProvider = new BackpressureMetricsProvider(
+                meterRegistry, 
+                backpressureProvider
+            );
+            
+            // Create listener for AdaptiveLoadPattern events (VajraPulse 0.9.9)
+            AdaptivePatternListenerImpl patternListener = new AdaptivePatternListenerImpl();
+            
+            // Create AdaptiveLoadPattern using builder pattern (VajraPulse 0.9.9)
+            AdaptiveLoadPattern adaptivePattern = AdaptiveLoadPattern.builder()
+                .initialTps(INITIAL_TPS)
+                .rampIncrement(RAMP_INCREMENT)
+                .rampDecrement(RAMP_DECREMENT)
+                .rampInterval(RAMP_INTERVAL)
+                .maxTps(MAX_TPS)
+                .minTps(MIN_TPS)
+                .sustainDuration(SUSTAIN_DURATION)
+                .errorThreshold(ERROR_THRESHOLD)
+                .metricsProvider(metricsProvider)
+                .listener(patternListener)
+                .build();
+            
+            log.info("=== Starting Adaptive Load Test ===");
+            log.info("Load Pattern: AdaptiveLoadPattern (VajraPulse 0.9.9)");
+            log.info("TPS Range: {} - {}", MIN_TPS, MAX_TPS);
+            log.info("Initial TPS: {}", INITIAL_TPS);
+            log.info("Backpressure: Composite (Queue + Connection Pool)");
+            log.info("Error Threshold: {}%", ERROR_THRESHOLD * 100.0);
             log.info("Duration: {} minutes", TEST_DURATION.toMinutes());
-            log.info("Expected Total Operations: ~{}", 
-                (long)(TARGET_TPS * TEST_DURATION.toSeconds()));
             
             // Run the test
-            var result = pipeline.run(task, staticLoad);
+            var result = pipeline.run(task, adaptivePattern);
             testResult = result;
             testCompleted = true;
             
@@ -214,6 +264,42 @@ public class LoadTestService implements CommandLineRunner {
             
             generateFinalReport(result);
         }
+    }
+    
+    /**
+     * Creates composite backpressure provider combining queue and connection pool metrics.
+     * 
+     * @return the composite backpressure provider
+     */
+    private CompositeBackpressureProvider createBackpressureProvider() {
+        // Queue depth backpressure (using supplier from task)
+        // Note: We need to get the queue depth supplier from the task
+        // For now, we'll create a simple supplier that returns 0
+        // The actual queue depth is tracked by Vortex internally
+        Supplier<Integer> queueDepthSupplier = () -> {
+            // Try to get queue depth from Vortex metrics
+            try {
+                var gauge = meterRegistry.find("vortex.queue.depth");
+                if (gauge != null && gauge.gauge() != null) {
+                    return (int) gauge.gauge().value();
+                }
+            } catch (Exception e) {
+                // Ignore - return 0 if metric not available
+            }
+            return 0;
+        };
+        
+        int maxQueueSize = 50 * 20;  // batchSize * 20 batches
+        QueueDepthBackpressureProvider queueProvider = new QueueDepthBackpressureProvider(
+            queueDepthSupplier,
+            maxQueueSize
+        );
+        
+        // Connection pool backpressure
+        ConnectionPoolBackpressureProvider poolProvider = new ConnectionPoolBackpressureProvider(dataSource);
+        
+        // Composite (uses maximum of both sources)
+        return new CompositeBackpressureProvider(queueProvider, poolProvider);
     }
 
     /**
@@ -236,8 +322,8 @@ public class LoadTestService implements CommandLineRunner {
             
             // Calculate actual throughput
             double actualTps = (double) totalExecutions / TEST_DURATION.toSeconds();
-            log.info("  Actual TPS: {} (target: {})", 
-                String.format("%.2f", actualTps), TARGET_TPS);
+            log.info("  Actual TPS: {} (range: {} - {})", 
+                String.format("%.2f", actualTps), MIN_TPS, MAX_TPS);
         } catch (Exception e) {
             log.warn("Could not extract test result metrics: {}", e.getMessage());
         }
