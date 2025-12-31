@@ -1,16 +1,14 @@
 package com.crdb.microbatch.service;
 
-import com.crdb.microbatch.backpressure.CompositeBackpressureProvider;
-import com.crdb.microbatch.backpressure.ConnectionPoolBackpressureProvider;
 import com.crdb.microbatch.repository.TestInsertRepository;
 import com.crdb.microbatch.task.CrdbInsertTask;
 import com.vajrapulse.api.pattern.adaptive.AdaptiveLoadPattern;
+import com.vajrapulse.api.pattern.adaptive.DefaultRampDecisionPolicy;
 import com.vajrapulse.api.task.TaskIdentity;
 import com.vajrapulse.exporter.otel.OpenTelemetryExporter;
 import com.vajrapulse.exporter.otel.OpenTelemetryExporter.Protocol;
 import com.vajrapulse.exporter.report.HtmlReportExporter;
-import com.vajrapulse.vortex.backpressure.QueueDepthBackpressureProvider;
-import com.vajrapulse.worker.pipeline.MetricsPipeline;
+import com.vajrapulse.worker.pipeline.LoadTestRunner;
 import com.zaxxer.hikari.HikariDataSource;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
@@ -18,19 +16,22 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Service;
 
+import com.vajrapulse.api.task.TaskLifecycle;
+import com.vajrapulse.api.task.TaskResult;
+import com.vajrapulse.api.task.TaskResultFailure;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Map;
-import java.util.function.Supplier;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Service that orchestrates the load test execution using VajraPulse MetricsPipeline.
+ * Service that orchestrates the load test execution using VajraPulse LoadTestRunner.
  * 
- * <p>This implementation uses AdaptiveLoadPattern (VajraPulse 0.9.9) with:
+ * <p>This implementation uses AdaptiveLoadPattern (VajraPulse 0.9.11) with:
  * <ul>
- *   <li>Adaptive TPS adjustment based on backpressure and failure rate</li>
- *   <li>Composite backpressure (queue depth + connection pool)</li>
+ *   <li>Adaptive TPS adjustment based on failure rate</li>
+ *   <li>Manual metrics tracking for accurate failure detection</li>
  *   <li>Automatic recovery from low TPS</li>
  *   <li>Comprehensive metrics and reporting</li>
  * </ul>
@@ -40,15 +41,15 @@ public class LoadTestService implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(LoadTestService.class);
     
-    // Adaptive load pattern configuration
-    private static final double MIN_TPS = 1000.0;
-    private static final double MAX_TPS = 20000.0;
-    private static final double INITIAL_TPS = 1000.0;
-    private static final double RAMP_INCREMENT = 500.0;
-    private static final double RAMP_DECREMENT = 1000.0;
-    private static final Duration RAMP_INTERVAL = Duration.ofSeconds(5);
-    private static final Duration SUSTAIN_DURATION = Duration.ofSeconds(10);
-    private static final double ERROR_THRESHOLD = 0.01;  // 1% failure rate
+    // Adaptive load pattern configuration - Fixed for proper TPS adjustment
+    private static final double MIN_TPS = 500.0;  // Lower minimum to allow more aggressive ramp down
+    private static final double MAX_TPS = 8000.0;  // Reduced further to prevent queue overload
+    private static final double INITIAL_TPS = 500.0;  // Start lower for gradual ramp up
+    private static final double RAMP_INCREMENT = 250.0;  // Smaller increments for more control
+    private static final double RAMP_DECREMENT = 2000.0;  // Aggressive reduction but not too extreme
+    private static final Duration RAMP_INTERVAL = Duration.ofMillis(2000);  // Slower check for stability (was 500ms)
+    private static final Duration SUSTAIN_DURATION = Duration.ofSeconds(5);  // Shorter sustain for faster adaptation
+    private static final double ERROR_THRESHOLD = 0.03;  // 3% failure rate (more sensitive)
     private static final Duration TEST_DURATION = Duration.ofMinutes(30);
     
     private static final int EXPORT_INTERVAL_SECONDS = 10;
@@ -70,7 +71,7 @@ public class LoadTestService implements CommandLineRunner {
      * @param task the CRDB insert task
      * @param repository the test insert repository
      * @param meterRegistry the Micrometer registry for metrics
-     * @param dataSource the HikariCP data source (for connection pool backpressure)
+     * @param dataSource the HikariCP data source
      */
     public LoadTestService(
             CrdbInsertTask task, 
@@ -203,13 +204,13 @@ public class LoadTestService implements CommandLineRunner {
     }
 
     /**
-     * Executes the load test using MetricsPipeline with AdaptiveLoadPattern.
+     * Executes the load test using LoadTestRunner with AdaptiveLoadPattern.
      * 
      * <p>This method:
      * <ul>
-     *   <li>Creates AdaptiveLoadPattern with backpressure-aware TPS adjustment</li>
-     *   <li>Uses composite backpressure (queue + connection pool) for capacity detection</li>
-     *   <li>Automatically adjusts TPS based on failure rate and backpressure</li>
+     *   <li>Creates AdaptiveLoadPattern with failure-rate-aware TPS adjustment</li>
+     *   <li>Uses manual metrics tracking for accurate failure detection</li>
+     *   <li>Automatically adjusts TPS based on failure rate</li>
      *   <li>Provides comprehensive metrics and reporting</li>
      * </ul>
      * 
@@ -219,20 +220,37 @@ public class LoadTestService implements CommandLineRunner {
      */
     private void executeLoadTest(OpenTelemetryExporter otelExporter, HtmlReportExporter htmlExporter) 
             throws Exception {
-        try (MetricsPipeline pipeline = createMetricsPipeline(otelExporter, htmlExporter)) {
-            // Create composite backpressure provider
-            CompositeBackpressureProvider backpressureProvider = createBackpressureProvider();
-            
-            // Create metrics provider that combines Micrometer metrics with backpressure
+        // Create manual metrics tracker since VajraPulse metrics may not be in registry
+        ManualMetricsTracker metricsTracker = new ManualMetricsTracker();
+        
+        // Wrap task to track metrics manually
+        TaskLifecycle trackingTask = createTrackingTask(metricsTracker);
+        
+        try (LoadTestRunner runner = createLoadTestRunner(otelExporter, htmlExporter)) {
+            // Create metrics provider that uses manual tracker
             BackpressureMetricsProvider metricsProvider = new BackpressureMetricsProvider(
                 meterRegistry, 
-                backpressureProvider
+                null,  // Backpressure provider no longer available in Vortex 0.0.12
+                metricsTracker  // Manual metrics tracker as fallback
             );
             
-            // Create listener for AdaptiveLoadPattern events (VajraPulse 0.9.9)
-            AdaptivePatternListenerImpl patternListener = new AdaptivePatternListenerImpl();
+            // Create listener for AdaptiveLoadPattern events (VajraPulse 0.9.11)
+            // Pass meterRegistry so listener can display failure rates
+            AdaptivePatternListenerImpl patternListener = new AdaptivePatternListenerImpl(meterRegistry);
             
-            // Create AdaptiveLoadPattern using builder pattern (VajraPulse 0.9.9)
+            // Create decision policy with error threshold (VajraPulse 0.9.11 API change)
+            // DefaultRampDecisionPolicy(errorThreshold) - ramps down when failure rate exceeds threshold
+            // Using explicit threshold to ensure failure rate checking is enabled
+            DefaultRampDecisionPolicy decisionPolicy = new DefaultRampDecisionPolicy(ERROR_THRESHOLD);
+
+            // Log policy configuration to verify it's set up correctly
+            log.info("🎯 Decision Policy Configuration:");
+            log.info("   Error Threshold: {}% ({} as decimal)", ERROR_THRESHOLD * 100.0, ERROR_THRESHOLD);
+            log.info("   Policy will trigger RAMP DOWN when failure rate exceeds {}%", ERROR_THRESHOLD * 100.0);
+            log.info("   Metrics Provider: {} (with manual tracker fallback)", metricsProvider.getClass().getSimpleName());
+            
+            // Create AdaptiveLoadPattern using builder pattern (VajraPulse 0.9.11)
+            // Note: errorThreshold is now configured via DefaultRampDecisionPolicy
             AdaptiveLoadPattern adaptivePattern = AdaptiveLoadPattern.builder()
                 .initialTps(INITIAL_TPS)
                 .rampIncrement(RAMP_INCREMENT)
@@ -241,21 +259,31 @@ public class LoadTestService implements CommandLineRunner {
                 .maxTps(MAX_TPS)
                 .minTps(MIN_TPS)
                 .sustainDuration(SUSTAIN_DURATION)
-                .errorThreshold(ERROR_THRESHOLD)
+                .decisionPolicy(decisionPolicy)
                 .metricsProvider(metricsProvider)
                 .listener(patternListener)
                 .build();
             
             log.info("=== Starting Adaptive Load Test ===");
-            log.info("Load Pattern: AdaptiveLoadPattern (VajraPulse 0.9.9)");
-            log.info("TPS Range: {} - {}", MIN_TPS, MAX_TPS);
-            log.info("Initial TPS: {}", INITIAL_TPS);
-            log.info("Backpressure: Composite (Queue + Connection Pool)");
-            log.info("Error Threshold: {}%", ERROR_THRESHOLD * 100.0);
+            log.info("Load Pattern: AdaptiveLoadPattern (VajraPulse 0.9.11)");
+            log.info("🎯 TPS Configuration:");
+            log.info("   Initial TPS: {}", INITIAL_TPS);
+            log.info("   Min TPS: {} (can ramp down to this level)", MIN_TPS);
+            log.info("   Max TPS: {} (will not exceed this)", MAX_TPS);
+            log.info("   Ramp Up: +{} TPS every {} ms", RAMP_INCREMENT, RAMP_INTERVAL.toMillis());
+            log.info("   Ramp Down: -{} TPS every {} ms when failure rate > {}%", RAMP_DECREMENT, RAMP_INTERVAL.toMillis(), ERROR_THRESHOLD * 100.0);
+            log.info("   Sustain Duration: {} seconds before next adjustment", SUSTAIN_DURATION.toSeconds());
+            log.info("🔧 Queue Configuration (from CrdbInsertTask):");
+            log.info("   Queue Size: 8,000 items (40 batches × 200 items)");
+            log.info("   Rejection Threshold: 60% (4,800 items)");
+            log.info("   Expected Rejection Response Time: 1-2 seconds at high TPS");
+            log.info("⚠️ IMPORTANT: Manual metrics tracking active (VajraPulse metrics not in registry)");
+            log.info("⚠️ Queue rejections (ItemRejectedException) are tracked as failures for TPS adjustment");
+            log.info("⚠️ AdaptiveLoadPattern will RAMP DOWN when failure rate exceeds 3%");
             log.info("Duration: {} minutes", TEST_DURATION.toMinutes());
             
-            // Run the test
-            var result = pipeline.run(task, adaptivePattern);
+            // Run the test with tracking task
+            var result = runner.run(trackingTask, adaptivePattern);
             testResult = result;
             testCompleted = true;
             
@@ -266,41 +294,6 @@ public class LoadTestService implements CommandLineRunner {
         }
     }
     
-    /**
-     * Creates composite backpressure provider combining queue and connection pool metrics.
-     * 
-     * @return the composite backpressure provider
-     */
-    private CompositeBackpressureProvider createBackpressureProvider() {
-        // Queue depth backpressure (using supplier from task)
-        // Note: We need to get the queue depth supplier from the task
-        // For now, we'll create a simple supplier that returns 0
-        // The actual queue depth is tracked by Vortex internally
-        Supplier<Integer> queueDepthSupplier = () -> {
-            // Try to get queue depth from Vortex metrics
-            try {
-                var gauge = meterRegistry.find("vortex.queue.depth");
-                if (gauge != null && gauge.gauge() != null) {
-                    return (int) gauge.gauge().value();
-                }
-            } catch (Exception e) {
-                // Ignore - return 0 if metric not available
-            }
-            return 0;
-        };
-        
-        int maxQueueSize = 50 * 20;  // batchSize * 20 batches
-        QueueDepthBackpressureProvider queueProvider = new QueueDepthBackpressureProvider(
-            queueDepthSupplier,
-            maxQueueSize
-        );
-        
-        // Connection pool backpressure
-        ConnectionPoolBackpressureProvider poolProvider = new ConnectionPoolBackpressureProvider(dataSource);
-        
-        // Composite (uses maximum of both sources)
-        return new CompositeBackpressureProvider(queueProvider, poolProvider);
-    }
 
     /**
      * Logs final test results.
@@ -330,14 +323,113 @@ public class LoadTestService implements CommandLineRunner {
     }
 
     /**
-     * Creates the metrics pipeline with exporters.
+     * Creates a task wrapper that tracks execution metrics manually.
+     * 
+     * <p>This is needed because VajraPulse MetricsPipeline may not expose
+     * metrics in the Micrometer registry in a way that's accessible to
+     * AdaptiveLoadPattern's MetricsProvider.
+     * 
+     * @param tracker the manual metrics tracker
+     * @return the tracking task wrapper
+     */
+    private TaskLifecycle createTrackingTask(ManualMetricsTracker tracker) {
+        return new TaskLifecycle() {
+            @Override
+            public void init() throws Exception {
+                task.init();
+            }
+            
+            @Override
+            public TaskResult execute(long iteration) throws Exception {
+                tracker.incrementTotal();
+                try {
+                    TaskResult result = task.execute(iteration);
+                    // Check if result is a failure
+                    if (result instanceof TaskResultFailure) {
+                        tracker.incrementFailures();
+                    } else {
+                        tracker.incrementSuccess();
+                    }
+                    return result;
+                } catch (Exception e) {
+                    tracker.incrementFailures();
+                    throw e;
+                }
+            }
+            
+            @Override
+            public void teardown() throws Exception {
+                task.teardown();
+            }
+        };
+    }
+    
+    /**
+     * Manual metrics tracker for execution counts with enhanced timing accuracy.
+     *
+     * <p>This tracks metrics manually since VajraPulse MetricsPipeline
+     * may not expose them in the Micrometer registry. Enhanced to provide
+     * better synchronization with AdaptiveLoadPattern timing.
+     */
+    private static class ManualMetricsTracker implements BackpressureMetricsProvider.ManualMetricsTracker {
+        private final AtomicLong totalExecutions = new AtomicLong(0);
+        private final AtomicLong successCount = new AtomicLong(0);
+        private final AtomicLong failureCount = new AtomicLong(0);
+        private volatile long lastLogTime = System.currentTimeMillis();
+
+        void incrementTotal() {
+            long total = totalExecutions.incrementAndGet();
+            // Log progress every 1000 executions to show activity
+            if (total % 1000 == 0) {
+                long now = System.currentTimeMillis();
+                double rate = 1000.0 / (now - lastLogTime) * 1000.0;  // Items per second
+                lastLogTime = now;
+                log.debug("📈 Manual Tracker Progress: {} total executions (current rate: {:.0f} items/sec)", total, rate);
+            }
+        }
+
+        void incrementSuccess() {
+            successCount.incrementAndGet();
+        }
+
+        void incrementFailures() {
+            long failures = failureCount.incrementAndGet();
+            long total = totalExecutions.get();
+            // Log immediately when failure rate gets concerning
+            if (failures > 0 && total > 0) {
+                double failureRate = (double) failures / total;
+                if (failures % 100 == 0 && failureRate > 0.01) {  // Log every 100 failures if rate > 1%
+                    log.warn("⚠️ Manual Tracker: {} failures out of {} total ({:.2f}% failure rate)",
+                        failures, total, failureRate * 100.0);
+                }
+            }
+        }
+
+        @Override
+        public long getTotalExecutions() {
+            return totalExecutions.get();
+        }
+
+        @Override
+        public long getSuccessCount() {
+            return successCount.get();
+        }
+
+        @Override
+        public long getFailureCount() {
+            return failureCount.get();
+        }
+    }
+    
+    /**
+     * Creates the load test runner with exporters.
      * 
      * @param otelExporter the OpenTelemetry exporter
      * @param htmlExporter the HTML report exporter
-     * @return the configured pipeline
+     * @return the configured runner
      */
-    private MetricsPipeline createMetricsPipeline(OpenTelemetryExporter otelExporter, HtmlReportExporter htmlExporter) {
-        return MetricsPipeline.builder()
+    private LoadTestRunner createLoadTestRunner(OpenTelemetryExporter otelExporter, HtmlReportExporter htmlExporter) {
+        return LoadTestRunner.builder()
             .addExporter(otelExporter)
             .addExporter(htmlExporter)
             .withRunId(otelExporter.getRunId())

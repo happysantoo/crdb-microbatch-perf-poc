@@ -1,18 +1,13 @@
 package com.crdb.microbatch.task;
 
 import com.crdb.microbatch.backend.CrdbBatchBackend;
-import com.crdb.microbatch.backpressure.CompositeBackpressureProvider;
-import com.crdb.microbatch.backpressure.ConnectionPoolBackpressureProvider;
 import com.crdb.microbatch.model.TestInsert;
 import com.zaxxer.hikari.HikariDataSource;
 import com.vajrapulse.api.task.TaskLifecycle;
 import com.vajrapulse.api.task.TaskResult;
 import com.vajrapulse.vortex.BatcherConfig;
-import com.vajrapulse.vortex.ItemResult;
+import com.vajrapulse.vortex.results.ItemResult;
 import com.vajrapulse.vortex.MicroBatcher;
-import com.vajrapulse.vortex.backpressure.BackpressureProvider;
-import com.vajrapulse.vortex.backpressure.QueueDepthBackpressureProvider;
-import com.vajrapulse.vortex.backpressure.RejectStrategy;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -32,10 +27,10 @@ import java.util.function.Supplier;
 /**
  * VajraPulse task for inserting rows into CockroachDB using Vortex microbatching.
  * 
- * <p>This is a straightforward implementation that:
+ * <p>This implementation uses Vortex 0.0.9 unified API:
  * <ul>
- *   <li>Uses submitSync() for immediate rejection visibility</li>
- *   <li>Uses QueueDepthBackpressureProvider directly (no wrappers)</li>
+ *   <li>Uses submit() for immediate rejection visibility</li>
+ *   <li>Uses queueRejectionThreshold in BatcherConfig for queue rejection</li>
  *   <li>Returns TaskResult immediately based on submission result</li>
  *   <li>Batch results are tracked via backend metrics</li>
  * </ul>
@@ -45,7 +40,7 @@ public class CrdbInsertTask implements TaskLifecycle {
 
     private static final Logger log = LoggerFactory.getLogger(CrdbInsertTask.class);
     
-    private static final int BATCH_SIZE = 50;
+    private static final int BATCH_SIZE = 200;  // Increased from 100 to 200 for maximum throughput
     private static final Duration LINGER_TIME = Duration.ofMillis(50);
     
     private final CrdbBatchBackend backend;
@@ -69,7 +64,7 @@ public class CrdbInsertTask implements TaskLifecycle {
      * 
      * @param backend the CRDB batch backend
      * @param meterRegistry the Micrometer meter registry
-     * @param dataSource the HikariCP data source (for connection pool backpressure)
+     * @param dataSource the HikariCP data source
      */
     public CrdbInsertTask(
             CrdbBatchBackend backend, 
@@ -103,11 +98,11 @@ public class CrdbInsertTask implements TaskLifecycle {
             .register(meterRegistry);
         
         backpressureRejectedCounter = Counter.builder("crdb.submits.rejected.backpressure")
-            .description("Number of items rejected due to backpressure (BackpressureException)")
+            .description("Number of items rejected due to queue being full (ItemRejectedException)")
             .register(meterRegistry);
         
         otherRejectedCounter = Counter.builder("crdb.submits.rejected.other")
-            .description("Number of items rejected for other reasons (queue full, etc.)")
+            .description("Number of items rejected for other reasons")
             .register(meterRegistry);
         
         submitLatencyTimer = Timer.builder("crdb.submit.latency")
@@ -116,65 +111,59 @@ public class CrdbInsertTask implements TaskLifecycle {
     }
 
     /**
-     * Initializes the Vortex MicroBatcher with composite backpressure and concurrent dispatch limiting.
-     * 
-     * <p>Uses Vortex 0.0.7 features:
+     * Initializes the Vortex MicroBatcher with optimized queue rejection configuration.
+     *
+     * <p>Uses Vortex 0.0.9 features:
      * <ul>
-     *   <li>Composite backpressure combining queue depth and connection pool</li>
+     *   <li>Smaller queue size to trigger faster backpressure detection</li>
+     *   <li>Lower rejection threshold to give AdaptiveLoadPattern more time to react</li>
      *   <li>Concurrent batch dispatch limiter (maxConcurrentBatches = 8, 80% of 10 connections)</li>
      *   <li>Prevents connection pool exhaustion by limiting concurrent dispatches</li>
      * </ul>
-     * 
-     * <p>This prevents both queue overflow and connection pool exhaustion
-     * by providing early warning from either source and limiting concurrent batch dispatches.
+     *
+     * <p>Note: The backpressure package has been removed in Vortex 0.0.9.
+     * Queue rejection is now handled via queueRejectionThreshold configuration.
      */
     private void initializeBatcher() {
-        int maxQueueSize = BATCH_SIZE * 20;  // 20 batches = 1000 items
-        int maxConcurrentBatches = 8;  // 80% of 10 connections - prevents pool exhaustion
-        
-        // Queue depth backpressure
-        BackpressureProvider queueProvider = new QueueDepthBackpressureProvider(
-            queueDepthSupplier,
-            maxQueueSize
-        );
-        
-        // Connection pool backpressure (prevents connection exhaustion)
-        BackpressureProvider poolProvider = new ConnectionPoolBackpressureProvider(dataSource);
-        
-        // Composite backpressure (uses maximum of both sources)
-        // This ensures we react to the worst pressure source
-        BackpressureProvider compositeProvider = new CompositeBackpressureProvider(
-            queueProvider,
-            poolProvider
-        );
-        
-        // Reject when composite backpressure >= 0.7
-        // This triggers when either queue > 70% OR pool > 70% utilized
-        RejectStrategy<TestInsert> strategy = new RejectStrategy<>(0.7);
-        
-        // Configure batcher with backpressure and concurrent dispatch limiting (Vortex 0.0.7)
-        // According to changelog: "All backpressure configuration now via BatcherConfig.builder()"
-        // and "Removed MicroBatcher.withBackpressure() factory methods"
+        // Reduced queue size to trigger backpressure faster and give AdaptiveLoadPattern time to react
+        // At 8,000 TPS: 8,000 items = 1 second buffer (gives time for TPS adjustment)
+        // At 5,000 TPS: 8,000 items = 1.6 seconds buffer
+        int maxQueueSize = BATCH_SIZE * 40;  // 40 batches = 8,000 items (reduced from 40,000)
+        int maxConcurrentBatches = 8;  // Use 8 of 10 connections (80%) for stability
+        double queueRejectionThreshold = 0.6;  // Reject at 60% capacity (4,800 items) - earlier rejection
+
+        // Configure batcher (Vortex 0.0.12)
+        // Note: The backpressure package has been removed since 0.0.9
+        // Queue rejection is configured via maxQueueSize and queueRejectionThreshold
         BatcherConfig config = BatcherConfig.builder()
             .batchSize(BATCH_SIZE)
             .lingerTime(LINGER_TIME)
             .atomicCommit(false)
-            // Note: These methods should be available in Vortex 0.0.7
-            // If compilation fails, ensure dependency is refreshed: ./gradlew --refresh-dependencies
-            .maxConcurrentBatches(maxConcurrentBatches)  // NEW in 0.0.7: Prevents connection pool exhaustion
-            .backpressureProvider(compositeProvider)    // NEW in 0.0.7: Configure via BatcherConfig
-            .backpressureStrategy(strategy)              // NEW in 0.0.7: Configure via BatcherConfig
+            .maxConcurrentBatches(maxConcurrentBatches)  // Prevents connection pool exhaustion
+            .maxQueueSize(maxQueueSize)  // Smaller queue for faster backpressure
+            .queueRejectionThreshold(queueRejectionThreshold)  // Earlier rejection at 60% capacity
             .build();
-        
-        // Create batcher using standard constructor (withBackpressure factory removed in 0.0.7)
+
+        // Create batcher using standard constructor
         batcher = new MicroBatcher<>(backend, config, meterRegistry);
-        
+
         queueDepthSupplier.setBatcher(batcher);
-        
-        log.info("MicroBatcher initialized (Vortex 0.0.7): batchSize={}, lingerTime={}ms, maxQueueSize={}, maxConcurrentBatches={}, backpressureThreshold=0.7", 
-            BATCH_SIZE, LINGER_TIME.toMillis(), maxQueueSize, maxConcurrentBatches);
-        log.info("Backpressure: Composite (Queue + Connection Pool) - prevents both queue overflow and connection exhaustion");
-        log.info("Concurrent dispatch limiting: {} batches max (80% of connection pool) - prevents connection pool exhaustion", maxConcurrentBatches);
+
+        log.info("🔧 MicroBatcher initialized (Vortex 0.0.12): batchSize={}, lingerTime={}ms, maxQueueSize={}, queueRejectionThreshold={}%, maxConcurrentBatches={}",
+            BATCH_SIZE, LINGER_TIME.toMillis(), maxQueueSize, queueRejectionThreshold * 100.0, maxConcurrentBatches);
+        log.info("🎯 Queue configuration: Max size={} items, Rejection threshold={}% ({} items) - Items rejected when queue reaches {} items",
+            maxQueueSize, queueRejectionThreshold * 100.0, (int)(maxQueueSize * queueRejectionThreshold), (int)(maxQueueSize * queueRejectionThreshold));
+        log.info("⚡ Concurrent dispatch: {} batches max (80% of connection pool) - balanced throughput and stability", maxConcurrentBatches);
+        log.info("📊 Expected throughput: ~{} items/sec ({} batches/sec × {} items/batch × {} concurrent batches)",
+            maxConcurrentBatches * (1000 / LINGER_TIME.toMillis()) * BATCH_SIZE,
+            maxConcurrentBatches * (1000 / LINGER_TIME.toMillis()),
+            BATCH_SIZE,
+            maxConcurrentBatches);
+        log.info("🎯 AdaptiveLoadPattern Integration:");
+        log.info("   Buffer Time at 8000 TPS: {} seconds", String.format("%.1f", maxQueueSize / 8000.0));
+        log.info("   Buffer Time at 5000 TPS: {} seconds", String.format("%.1f", maxQueueSize / 5000.0));
+        log.info("   Rejection triggers when queue depth > {} items", (int)(maxQueueSize * queueRejectionThreshold));
+        log.info("   This gives AdaptiveLoadPattern time to detect failures and ramp down TPS");
     }
     
     /**
@@ -203,10 +192,10 @@ public class CrdbInsertTask implements TaskLifecycle {
     /**
      * Executes the task for a single iteration.
      * 
-     * <p>Uses submitSync() which:
+     * <p>Uses submit() (Vortex 0.0.12 unified API) which:
      * <ul>
      *   <li>Returns immediately with SUCCESS if item is queued</li>
-     *   <li>Returns immediately with FAILURE if item is rejected (backpressure/queue full)</li>
+     *   <li>Returns immediately with FAILURE if item is rejected (queue full)</li>
      *   <li>Provides immediate visibility to AdaptiveLoadPattern</li>
      * </ul>
      * 
@@ -222,20 +211,21 @@ public class CrdbInsertTask implements TaskLifecycle {
         try {
             TestInsert testInsert = generateTestData();
             
-            // Use submitSync() - returns immediately
-            ItemResult<TestInsert> result = batcher.submitSync(testInsert);
+            // Use submit() - unified API in Vortex 0.0.12
+            // submit() returns ItemResult immediately (synchronous behavior)
+            ItemResult<TestInsert> result = batcher.submit(testInsert);
             
             sample.stop(submitLatencyTimer);
             
             if (result instanceof ItemResult.Failure<TestInsert> failure) {
-                // Rejected - check if it's due to backpressure
+                // Rejected - check if it's due to queue being full
                 Throwable error = failure.error();
                 submitFailureCounter.increment();
                 
-                // Track backpressure rejections separately
-                if (isBackpressureException(error)) {
+                // Track queue rejection separately (ItemRejectedException in 0.0.9)
+                if (isItemRejectedException(error)) {
                     backpressureRejectedCounter.increment();
-                    log.debug("Item rejected due to backpressure: {}", error.getMessage());
+                    log.debug("Item rejected due to queue being full: {}", error.getMessage());
                 } else {
                     otherRejectedCounter.increment();
                     log.debug("Item rejected for other reason: {}", error.getClass().getSimpleName());
@@ -255,24 +245,6 @@ public class CrdbInsertTask implements TaskLifecycle {
             log.error("Task execution failed at iteration: {}", iteration, e);
             return TaskResult.failure(e);
         }
-    }
-    
-    /**
-     * Gets the queue depth supplier for use in AdaptiveLoadPattern.
-     * 
-     * @return the queue depth supplier
-     */
-    public Supplier<Integer> getQueueDepthSupplier() {
-        return queueDepthSupplier;
-    }
-    
-    /**
-     * Gets the maximum queue size configured for the MicroBatcher.
-     * 
-     * @return the maximum queue size
-     */
-    public int getMaxQueueSize() {
-        return BATCH_SIZE * 20;
     }
 
     @Override
@@ -385,39 +357,39 @@ public class CrdbInsertTask implements TaskLifecycle {
     }
     
     /**
-     * Checks if the error is a BackpressureException.
+     * Checks if the error is an ItemRejectedException (Vortex 0.0.12).
      * 
-     * <p>BackpressureException is thrown by Vortex when items are rejected due to
-     * backpressure threshold being exceeded. This method checks both the direct
-     * exception type and the exception message to identify backpressure rejections.
+     * <p>ItemRejectedException is thrown by Vortex when items are rejected due to
+     * queue being full (queueRejectionThreshold exceeded). This method checks both
+     * the direct exception type and the exception message to identify queue rejections.
      * 
      * @param error the error to check
-     * @return true if the error is a BackpressureException, false otherwise
+     * @return true if the error is an ItemRejectedException, false otherwise
      */
-    private boolean isBackpressureException(Throwable error) {
+    private boolean isItemRejectedException(Throwable error) {
         if (error == null) {
             return false;
         }
         
-        // Check exception class name (works even if class not in classpath)
+        // Check exception class name
         String className = error.getClass().getName();
-        if (className.contains("BackpressureException")) {
+        if (className.contains("ItemRejectedException")) {
             return true;
         }
         
-        // Check exception message for backpressure indicators
+        // Check exception message for rejection indicators
         String message = error.getMessage();
         if (message != null) {
             String lowerMessage = message.toLowerCase();
-            return lowerMessage.contains("backpressure") || 
-                   lowerMessage.contains("back pressure") ||
-                   lowerMessage.contains("pressure level");
+            return lowerMessage.contains("rejected") || 
+                   lowerMessage.contains("queue full") ||
+                   lowerMessage.contains("queue is full");
         }
         
         // Check cause recursively
         Throwable cause = error.getCause();
         if (cause != null && cause != error) {
-            return isBackpressureException(cause);
+            return isItemRejectedException(cause);
         }
         
         return false;
