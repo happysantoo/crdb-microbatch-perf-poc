@@ -287,7 +287,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "histogram_quantile(0.50, rate(vajrapulse_task_duration_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(vajrapulse_task_duration_seconds_bucket[1m])))",
           "refId": "A",
           "legendFormat": "VajraPulse p50"
         },
@@ -296,7 +296,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "histogram_quantile(0.95, rate(vajrapulse_task_duration_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(vajrapulse_task_duration_seconds_bucket[1m])))",
           "refId": "B",
           "legendFormat": "VajraPulse p95"
         },
@@ -305,7 +305,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "histogram_quantile(0.99, rate(vajrapulse_task_duration_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(vajrapulse_task_duration_seconds_bucket[1m])))",
           "refId": "C",
           "legendFormat": "VajraPulse p99"
         },
@@ -314,7 +314,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "histogram_quantile(0.50, rate(crdb_submit_latency_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(crdb_submit_latency_seconds_bucket[1m])))",
           "refId": "D",
           "legendFormat": "CRDB Submit p50"
         },
@@ -323,7 +323,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "histogram_quantile(0.95, rate(crdb_submit_latency_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(crdb_submit_latency_seconds_bucket[1m])))",
           "refId": "E",
           "legendFormat": "CRDB Submit p95"
         },
@@ -332,7 +332,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "histogram_quantile(0.99, rate(crdb_submit_latency_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(crdb_submit_latency_seconds_bucket[1m])))",
           "refId": "F",
           "legendFormat": "CRDB Submit p99"
         }
@@ -515,7 +515,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "histogram_quantile(0.50, rate(crdb_batch_duration_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(crdb_batch_duration_seconds_bucket[1m])))",
           "refId": "A",
           "legendFormat": "Batch Duration p50"
         },
@@ -524,7 +524,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "histogram_quantile(0.95, rate(crdb_batch_duration_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(crdb_batch_duration_seconds_bucket[1m])))",
           "refId": "B",
           "legendFormat": "Batch Duration p95"
         },
@@ -533,7 +533,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "histogram_quantile(0.99, rate(crdb_batch_duration_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(crdb_batch_duration_seconds_bucket[1m])))",
           "refId": "C",
           "legendFormat": "Batch Duration p99"
         },
@@ -542,7 +542,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "histogram_quantile(0.50, rate(vortex_batch_dispatch_latency_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(vortex_batch_dispatch_latency_milliseconds_bucket[1m]))) / 1000",
           "refId": "D",
           "legendFormat": "Vortex Dispatch p50"
         },
@@ -551,7 +551,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "histogram_quantile(0.95, rate(vortex_batch_dispatch_latency_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(vortex_batch_dispatch_latency_milliseconds_bucket[1m]))) / 1000",
           "refId": "E",
           "legendFormat": "Vortex Dispatch p95"
         }
@@ -718,28 +718,109 @@
           },
           "expr": "vortex_queue_depth",
           "refId": "A",
-          "legendFormat": "Queue Depth"
+          "legendFormat": "Queue Depth (Current)"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "histogram_quantile(0.50, rate(vortex_request_wait_latency_seconds_bucket[1m]))",
+          "expr": "1000",
           "refId": "B",
-          "legendFormat": "Request Wait p50"
+          "legendFormat": "Max Queue Size (1000)"
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "histogram_quantile(0.95, rate(vortex_request_wait_latency_seconds_bucket[1m]))",
+          "expr": "vortex_queue_depth / 1000",
           "refId": "C",
-          "legendFormat": "Request Wait p95"
+          "legendFormat": "Backpressure Level (0.0-1.0)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "0.7",
+          "refId": "D",
+          "legendFormat": "Reject Threshold (0.7)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "rate(vortex_backpressure_rejected_total[1m])",
+          "refId": "E",
+          "legendFormat": "Vortex Rejected/sec (Backpressure >= 0.7)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "rate(crdb_submits_rejected_backpressure_total[1m])",
+          "refId": "K",
+          "legendFormat": "CRDB Rejected (Backpressure)/sec"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "rate(crdb_submits_rejected_other_total[1m])",
+          "refId": "L",
+          "legendFormat": "CRDB Rejected (Other)/sec"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(vortex_request_wait_latency_milliseconds_bucket[1m]))) / 1000",
+          "refId": "F",
+          "legendFormat": "Item Wait Time p50 (sec)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(vortex_request_wait_latency_milliseconds_bucket[1m]))) / 1000",
+          "refId": "G",
+          "legendFormat": "Item Wait Time p95 (sec)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(vortex_request_wait_latency_milliseconds_bucket[1m]))) / 1000",
+          "refId": "H",
+          "legendFormat": "Item Wait Time p99 (sec)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(vortex_batch_dispatch_latency_milliseconds_bucket[1m]))) / 1000",
+          "refId": "I",
+          "legendFormat": "Batch Dispatch p50 (sec)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(vortex_batch_dispatch_latency_milliseconds_bucket[1m]))) / 1000",
+          "refId": "J",
+          "legendFormat": "Batch Dispatch p95 (sec)"
         }
       ],
-      "title": "Vortex Queue Metrics",
+      "title": "Vortex Queue & Backpressure Metrics",
       "type": "timeseries"
     },
     {
@@ -830,6 +911,24 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
+          "expr": "rate(crdb_submits_rejected_backpressure_total[1m])",
+          "refId": "E",
+          "legendFormat": "Rejected (Backpressure)/sec"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "rate(crdb_submits_rejected_other_total[1m])",
+          "refId": "F",
+          "legendFormat": "Rejected (Other)/sec"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
           "expr": "rate(crdb_batches_success_total[1m])",
           "refId": "C",
           "legendFormat": "Successful Batches/sec"
@@ -886,6 +985,311 @@
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 28
+      },
+      "id": 15,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "last", "max"],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "rate(crdb_submits_rejected_backpressure_total[1m]) / rate(crdb_submits_total_total[1m]) * 100",
+          "refId": "A",
+          "legendFormat": "Backpressure Rejection %"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "rate(crdb_submits_rejected_other_total[1m]) / rate(crdb_submits_total_total[1m]) * 100",
+          "refId": "B",
+          "legendFormat": "Other Rejection %"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "(rate(crdb_submits_rejected_backpressure_total[1m]) + rate(crdb_submits_rejected_other_total[1m])) / rate(crdb_submits_total_total[1m]) * 100",
+          "refId": "C",
+          "legendFormat": "Total Rejection %"
+        }
+      ],
+      "title": "Rejection Percentages",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 100,
+            "gradientMode": "none",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 36
+      },
+      "id": 28,
+      "options": {
+        "legend": {
+          "calcs": ["last", "max", "sum"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "crdb_batch_rows_success_total",
+          "refId": "A",
+          "legendFormat": "Successfully Inserted"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "crdb_batch_rows_failure_total",
+          "refId": "B",
+          "legendFormat": "Failed Rows"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "vortex_requests_rejected_total",
+          "refId": "C",
+          "legendFormat": "Rejected (Queue Full)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "vortex_dispatch_rejected_total",
+          "refId": "C2",
+          "legendFormat": "Rejected (Dispatch Limit)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "vortex_backpressure_rejected_total",
+          "refId": "C3",
+          "legendFormat": "Rejected (Backpressure Strategy)",
+          "hide": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "crdb_submits_rejected_other_total",
+          "refId": "D",
+          "legendFormat": "Rejected (Other - App)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "vortex_queue_depth",
+          "refId": "E",
+          "legendFormat": "In Queue (Waiting to Batch)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "crdb_submits_success_total - crdb_batch_rows_total_total",
+          "refId": "G",
+          "legendFormat": "In-Flight (Batched but Not Committed)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "vortex_requests_submitted_total - vortex_requests_succeeded_total",
+          "refId": "H",
+          "legendFormat": "Submitted but Not Succeeded (Missing 5.5M)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "vortex_requests_succeeded_total",
+          "refId": "L",
+          "legendFormat": "Vortex Requests Succeeded (Should = Inserted)",
+          "hide": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "vortex_requests_submitted_total",
+          "refId": "K",
+          "legendFormat": "Total Vortex Requests Submitted (18M)",
+          "hide": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "crdb_submits_total_total",
+          "refId": "F",
+          "legendFormat": "Total App Submits (for reference)",
+          "hide": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "crdb_batch_rows_total_total",
+          "refId": "I",
+          "legendFormat": "Total Batched (for reference)",
+          "hide": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "crdb_submits_success_total",
+          "refId": "J",
+          "legendFormat": "Total Accepted (for reference)",
+          "hide": true
+        }
+      ],
+      "title": "Submit vs Insert Accounting",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
               }
             ]
           },
@@ -896,7 +1300,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 28
+        "y": 36
       },
       "id": 7,
       "options": {

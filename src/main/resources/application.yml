@@ -7,7 +7,7 @@ spring:
     password: 
     driver-class-name: org.postgresql.Driver
     hikari:
-      maximum-pool-size: 10  # Testing: Keep at 10 to validate connection pool bottleneck theory
+      maximum-pool-size: 10  # Limited to 10 connections - backpressure needed for higher TPS
       minimum-idle: 10
       connection-timeout: 30000
       idle-timeout: 600000
@@ -42,8 +42,7 @@ management:
         "[crdb.inserts.duration]": 0.5, 0.9, 0.95, 0.99
     buffers:
       expiry: 10s  # Expire metric buffers after 10s to prevent accumulation
-    tags:
-      application: ${spring.application.name}
+    # Tags are configured via MeterFilter in MetricsConfig to avoid order warnings
 
 otel:
   exporter:
@@ -52,8 +51,23 @@ otel:
 
 logging:
   level:
-    root: WARN
-    com.crdb.microbatch: WARN
-    com.vajrapulse: WARN
+    root: INFO
+    com.crdb.microbatch: INFO
+    com.crdb.microbatch.service: INFO
+    com.crdb.microbatch.service.BatchingDiagnostics: ERROR  # Disabled - too noisy
+    com.crdb.microbatch.backend: INFO
+    com.crdb.microbatch.repository: INFO
+    com.crdb.microbatch.task: INFO
+    com.crdb.microbatch.backpressure: INFO
+    com.vajrapulse: INFO
+    com.vajrapulse.core.engine: INFO
+    com.vajrapulse.core.engine.ExecutionEngine: INFO
+    com.vajrapulse.core.engine.RateController: INFO
+    com.vajrapulse.api: INFO
+    com.vajrapulse.worker: INFO
     org.springframework: WARN
+    org.springframework.jdbc: WARN
+    org.hikaricp: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 
